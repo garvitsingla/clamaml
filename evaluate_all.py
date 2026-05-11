@@ -2,7 +2,7 @@
 Compares on the same environment and task set:
   1. C-LA-MAML        — dual adapters (lang_model/)
   2. Unified LA-MAML  — single adapter, full combined string (unified_model/)
-  3. Hyper C-LA-MAML  — AbsoluteHyperNetwork (hyper_model/)
+  3. NN C-LA-MAML     — AbsoluteNN (nn_model/)
   4. Random Policy    — untrained baseline
 
 Output: evaluation_results_all.xlsx  (one sheet per env, plus a per-mission sheet)
@@ -29,7 +29,7 @@ from environment import (ConstrainedGoToLocalEnv, ConstrainedPickupDistEnv,
                          ConstrainedFindObjS5Env)
 from sampler_lang import (BabyAIMissionTaskWrapper, SentenceMissionEncoder,
                           MissionParamAdapter, ConstraintParamAdapter,
-                          AbsoluteHyperNetwork)
+                          AbsoluteNN)
 import sampler_lang
 from maml_rl.policies.categorical_mlp import CategoricalMLPPolicy
 
@@ -67,8 +67,10 @@ p.add_argument("--n-missions", type=int,   default=10,  help="tasks to evaluate 
 p.add_argument("--n-episodes", type=int,   default=10,  help="episodes per task")
 p.add_argument("--skip-clamaml",  action="store_true")
 p.add_argument("--skip-unified",  action="store_true")
-p.add_argument("--skip-hyper",    action="store_true")
+p.add_argument("--skip-nn",       action="store_true")
 p.add_argument("--skip-random",   action="store_true")
+p.add_argument("--num-constraints", type=int, default=1,
+               help="number of constraints to train with (1 or 2)")
 args = p.parse_args()
 
 seed = 42
@@ -160,7 +162,12 @@ EP          = args.n_episodes
 
 all_missions   = MISSION_MAP[env_name]
 goals_list     = GOALS_MAP.get(env_name)
-constraints_list = _DOUBLE_CT if goals_list else None
+if args.num_constraints == 1:
+    constraints_list = _CT if goals_list else None
+    all_missions = [f"{g} and {c}" for g in goals_list for c in _CT] if goals_list else all_missions
+else:
+    constraints_list = _DOUBLE_CT if goals_list else None
+    all_missions = [f"{g} and {c}" for g in goals_list for c in _DOUBLE_CT] if goals_list else all_missions
 
 env = build_env(env_name, room_size, num_dists, max_steps, all_missions,
                 goals_list, constraints_list)
@@ -190,10 +197,10 @@ def _make_policy():
 policy_param_shapes = [p.shape for p in _make_policy().parameters()]
 
 
-# ── Load C-LA-MAML ─────────────────────────────────────────────────────────────
+# ── Load C-LAMAML ─────────────────────────────────────────────────────────────
 clamaml_ready = False
 if not args.skip_clamaml:
-    _ckpt_path = f"lang_model/lang_{env_name}_{delta_theta}.pth"
+    _ckpt_path = f"lang_model/lang_{env_name}_{delta_theta}_{args.num_constraints}c.pth"
     if os.path.exists(_ckpt_path):
         ckpt_c = torch.load(_ckpt_path, map_location=device)
         policy_c = _make_policy(); policy_c.load_state_dict(ckpt_c["policy"]); policy_c.eval()
@@ -204,15 +211,15 @@ if not args.skip_clamaml:
             constr_adapter = ConstraintParamAdapter(enc_dim, policy_param_shapes).to(device)
             constr_adapter.load_state_dict(ckpt_c["constraint_adapter"]); constr_adapter.eval()
         clamaml_ready = True
-        print(f"[✓] C-LA-MAML loaded from {_ckpt_path}")
+        print(f"[✓] C-LAMAML loaded from {_ckpt_path}")
     else:
-        print(f"[✗] C-LA-MAML checkpoint not found: {_ckpt_path}  (skipping)")
+        print(f"[✗] C-LAMAML checkpoint not found: {_ckpt_path}  (skipping)")
 
 
 # ── Load Unified LA-MAML ───────────────────────────────────────────────────────
 unified_ready = False
 if not args.skip_unified:
-    _ckpt_path = f"unified_model/lang_{env_name}_{delta_theta}.pth"
+    _ckpt_path = f"unified_model/lang_{env_name}_{delta_theta}_{args.num_constraints}c.pth"
     if os.path.exists(_ckpt_path):
         ckpt_u = torch.load(_ckpt_path, map_location=device)
         policy_u = _make_policy(); policy_u.load_state_dict(ckpt_u["policy"]); policy_u.eval()
@@ -224,21 +231,21 @@ if not args.skip_unified:
         print(f"[✗] Unified LA-MAML checkpoint not found: {_ckpt_path}  (skipping)")
 
 
-# ── Load Hyper C-LA-MAML ───────────────────────────────────────────────────────
-hyper_ready = False
-if not args.skip_hyper:
-    _ckpt_path = f"hyper_model/lang_{env_name}_{delta_theta}.pth"
+# ── Load NN C-LAMAML ───────────────────────────────────────────────────────
+nn_ready = False
+if not args.skip_nn:
+    _ckpt_path = f"nn_model/lang_{env_name}_{delta_theta}_{args.num_constraints}c.pth"
     if os.path.exists(_ckpt_path):
         ckpt_h = torch.load(_ckpt_path, map_location=device)
         policy_h = _make_policy(); policy_h.load_state_dict(ckpt_h["policy"]); policy_h.eval()
-        hypernetwork = None
-        if ckpt_h.get("hypernetwork") is not None:
-            hypernetwork = AbsoluteHyperNetwork(enc_dim, policy_param_shapes).to(device)
-            hypernetwork.load_state_dict(ckpt_h["hypernetwork"]); hypernetwork.eval()
-        hyper_ready = True
-        print(f"[✓] Hyper C-LA-MAML loaded from {_ckpt_path}")
+        nn_net = None
+        if ckpt_h.get("nn") is not None:
+            nn_net = AbsoluteNN(enc_dim, policy_param_shapes).to(device)
+            nn_net.load_state_dict(ckpt_h["nn"]); nn_net.eval()
+        nn_ready = True
+        print(f"[✓] NN C-LAMAML loaded from {_ckpt_path}")
     else:
-        print(f"[✗] Hyper C-LA-MAML checkpoint not found: {_ckpt_path}  (skipping)")
+        print(f"[✗] NN C-LAMAML checkpoint not found: {_ckpt_path}  (skipping)")
 
 print()
 
@@ -281,8 +288,8 @@ def _params_unified(mission):
         )
 
 
-def _params_hyper(mission):
-    """θ' = HyperNetwork(θ, goal_emb, constr_emb)"""
+def _params_nn(mission):
+    """θ' = NN(θ, goal_emb, constr_emb)"""
     if isinstance(mission, tuple):
         goal_str, constr_str = mission
     else:
@@ -293,10 +300,10 @@ def _params_hyper(mission):
         g_emb = mission_encoder(goal_str).to(device)
         c_emb = mission_encoder(constr_str).to(device) if constr_str else torch.zeros_like(g_emb)
 
-        if hypernetwork is not None:
+        if nn_net is not None:
             theta_flat    = parameters_to_vector(list(policy_h.parameters()))
             combined_inp  = torch.cat([theta_flat.unsqueeze(0), g_emb, c_emb], dim=-1)
-            theta_tensors = hypernetwork(combined_inp)
+            theta_tensors = nn_net(combined_inp)
             names = list(dict(policy_h.named_parameters()).keys())
             return OrderedDict((n, t.squeeze(0)) for n, t in zip(names, theta_tensors))
         else:
@@ -342,9 +349,9 @@ test_tasks = random.sample(all_missions, min(N, len(all_missions)))
 
 # ── Run evaluation ─────────────────────────────────────────────────────────────
 METHODS = []
-if clamaml_ready:  METHODS.append(("C-LA-MAML",   policy_c, _params_clamaml))
+if clamaml_ready:  METHODS.append(("C-LAMAML",   policy_c, _params_clamaml))
 if unified_ready:  METHODS.append(("Unified",      policy_u, _params_unified))
-if hyper_ready:    METHODS.append(("Hyper",        policy_h, _params_hyper))
+if nn_ready:       METHODS.append(("NN",           policy_h, _params_nn))
 METHODS.append(("Random", None, None))
 
 # per-method stats: list of (sr, avg_steps, avg_viols) per task
@@ -371,14 +378,14 @@ for mission in test_tasks:
                 env.reset_task(mission)
                 s, ok, v = rollout_random(seed=ep_seeds[ep])
                 ep_steps.append(s); ep_succ.append(ok); ep_viols.append(v)
-                print(f"  [{mname}] Ep {ep+1}/{EP} - Success: {ok}, Steps: {s}, Viols: {v}")
+                # print(f"  [{mname}] Ep {ep+1}/{EP} - Success: {ok}, Steps: {s}, Viols: {v}")
         else:
             params = get_params(mission)
             for ep in range(EP):
                 env.reset_task(mission)
                 s, ok, v = rollout(policy, params, seed=ep_seeds[ep])
                 ep_steps.append(s); ep_succ.append(ok); ep_viols.append(v)
-                print(f"  [{mname}] Ep {ep+1}/{EP} - Success: {ok}, Steps: {s}, Viols: {v}")
+                # print(f"  [{mname}] Ep {ep+1}/{EP} - Success: {ok}, Steps: {s}, Viols: {v}")
 
         sr    = np.mean(ep_succ)
         avgst = np.mean(ep_steps)
@@ -416,7 +423,7 @@ if summary_name not in wb.sheetnames:
     ws_sum.append(["Env", "Room", "Dists", "Steps", "Delta",
                    "C-SR%","C-Steps","C-Viols",
                    "U-SR%","U-Steps","U-Viols",
-                   "H-SR%","H-Steps","H-Viols",
+                   "N-SR%","N-Steps","N-Viols",
                    "Rand-SR%","Rand-Steps","Rand-Viols"])
 else:
     ws_sum = wb[summary_name]
@@ -429,11 +436,11 @@ def _agg(mname):
             round(np.mean([x[1] for x in data]), 1),
             round(np.mean([x[2] for x in data]), 2))
 
-ws_sum.append([env_name, room_size, num_dists, max_steps, delta_theta,
-               *_agg("C-LA-MAML"), *_agg("Unified"), *_agg("Hyper"), *_agg("Random")])
+ws_sum.append([f"{env_name} ({args.num_constraints}c)", room_size, num_dists, max_steps, delta_theta,
+               *_agg("C-LAMAML"), *_agg("Unified"), *_agg("NN"), *_agg("Random")])
 
 # Per-mission sheet (overwritten per run)
-sheet_name = (env_name + "_Missions")[:31]
+sheet_name = (f"{env_name}_{args.num_constraints}c_Missions")[:31]
 if sheet_name in wb.sheetnames:
     del wb[sheet_name]
 ws_m = wb.create_sheet(sheet_name)

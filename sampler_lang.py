@@ -255,9 +255,9 @@ class ConstraintParamAdapter(nn.Module):
         return reshaped 
         
 
-class AbsoluteHyperNetwork(nn.Module):
+class AbsoluteNN(nn.Module):
     """
-    Absolute Hypernetwork: [flattened_theta, goal_emb, constraint_emb] -> absolute theta_prime
+    Absolute NN: [flattened_theta, goal_emb, constraint_emb] -> absolute theta_prime
     """
     def __init__(self, encoder_output_dim, policy_param_shapes):
         super().__init__()

@@ -25,10 +25,12 @@ mpl.rcParams.update({
 
 # ── Color palette — consistent across all envs ──────────────────────────────
 COLORS = {
-    "la_maml":          "#2ca02c",   # green
+    "la_maml":         "#2ca02c",   # green
     "maml":             "#1f77b4",   # blue
     "lang_conditioned": "#ff7f0e",   # orange
     "anil":             "#d62728",   # red
+    "unified":          "#9467bd",   # purple
+    "nn":               "#8c564b",   # brown
 }
 
 
@@ -80,18 +82,48 @@ def main():
             os.path.join(base_dir, "anil_avg_steps.npy"),
             os.path.join(base_dir, "anil_meta.json"),
         ),
+        "unified": (
+            os.path.join(base_dir, f"unified_avg_steps_{args.delta_theta}.npy"),
+            os.path.join(base_dir, f"unified_meta_{args.delta_theta}.json"),
+        ),
+        "nn": (
+            os.path.join(base_dir, f"nn_avg_steps_{args.delta_theta}.npy"),
+            os.path.join(base_dir, f"nn_meta_{args.delta_theta}.json"),
+        ),
     }
 
     paths_std = {
         "maml":             os.path.join(base_dir, "maml_std_steps.npy"),
         "lang_conditioned": os.path.join(base_dir, "lang_conditioned_std_steps.npy"),
-        "la_maml":          os.path.join(base_dir, f"la_maml_std_steps_{args.delta_theta}.npy"),
+        "la_maml":         os.path.join(base_dir, f"la_maml_std_steps_{args.delta_theta}.npy"),
         "anil":             os.path.join(base_dir, "anil_std_steps.npy"),
+        "unified":          os.path.join(base_dir, f"unified_std_steps_{args.delta_theta}.npy"),
+        "nn":               os.path.join(base_dir, f"nn_std_steps_{args.delta_theta}.npy"),
+    }
+
+    paths_costs = {
+        "maml":             os.path.join(base_dir, "maml_avg_costs.npy"),
+        "lang_conditioned": os.path.join(base_dir, "lang_conditioned_avg_costs.npy"),
+        "la_maml":         os.path.join(base_dir, f"la_maml_avg_costs_{args.delta_theta}.npy"),
+        "anil":             os.path.join(base_dir, "anil_avg_costs.npy"),
+        "unified":          os.path.join(base_dir, f"unified_avg_costs_{args.delta_theta}.npy"),
+        "nn":               os.path.join(base_dir, f"nn_avg_costs_{args.delta_theta}.npy"),
+    }
+
+    paths_std_costs = {
+        "maml":             os.path.join(base_dir, "maml_std_costs.npy"),
+        "lang_conditioned": os.path.join(base_dir, "lang_conditioned_std_costs.npy"),
+        "la_maml":         os.path.join(base_dir, f"la_maml_std_costs_{args.delta_theta}.npy"),
+        "anil":             os.path.join(base_dir, "anil_std_costs.npy"),
+        "unified":          os.path.join(base_dir, f"unified_std_costs_{args.delta_theta}.npy"),
+        "nn":               os.path.join(base_dir, f"nn_std_costs_{args.delta_theta}.npy"),
     }
 
     # ── Load ─────────────────────────────────────────────────────────────────
     series     = {}
     series_std = {}
+    series_costs = {}
+    series_std_costs = {}
     meta       = {}
 
     for key, (npy_path, json_path) in paths.items():
@@ -105,12 +137,22 @@ def main():
         if os.path.exists(npy_path):
             series_std[key] = np.load(npy_path)
 
+    for key, npy_path in paths_costs.items():
+        if os.path.exists(npy_path):
+            series_costs[key] = np.load(npy_path)
+
+    for key, npy_path in paths_std_costs.items():
+        if os.path.exists(npy_path):
+            series_std_costs[key] = np.load(npy_path)
+
     # ── Labels ───────────────────────────────────────────────────────────────
     label_defaults = {
         "maml":             "MAML",
         "lang_conditioned": "language-conditioned policy",
-        "la_maml":          "LA-MAML",
+        "la_maml":         "LA-MAML",
         "anil":             "ANIL",
+        "unified":          "Unified LA-MAML",
+        "nn":               "NN LA-MAML",
     }
     labels = {k: meta[k].get("label", label_defaults[k])
               for k in label_defaults if k in meta}
@@ -170,6 +212,40 @@ def main():
             fig_leg.savefig(legend_path, dpi=300, bbox_inches="tight")
             print(f"Saved legend: {legend_path}")
             plt.close(fig_leg)
+
+    if series_std_costs:
+        out_var_dir = args.out_dir
+        os.makedirs(out_var_dir, exist_ok=True)
+
+        fig, ax      = plt.subplots(figsize=(5, 3.5))
+        line_handles = []
+        line_labels  = []
+
+        for key in labels:
+            if key in series_costs and key in series_std_costs:
+                y_mean = maybe_smooth(series_costs[key].astype(float), w)
+                y_std  = maybe_smooth(series_std_costs[key].astype(float), w)
+                x      = np.arange(1, len(y_mean) + 1)
+                color  = COLORS.get(key)
+
+                line, = ax.plot(x, y_mean, label=labels[key], color=color)
+                ax.fill_between(x,
+                                y_mean - y_std,
+                                y_mean + y_std,
+                                color=color, alpha=0.2)
+                line_handles.append(line)
+                line_labels.append(labels[key])
+
+        ax.set_xlabel("Meta-iteration")
+        ax.set_ylabel("Average Cost")
+        ax.set_title(env)
+        ax.grid(True, alpha=0.4)
+        fig.tight_layout(pad=0.1)
+
+        out_var_path = os.path.join(out_var_dir, f"{env}_costs.{args.format}")
+        fig.savefig(out_var_path, dpi=300, bbox_inches="tight")
+        print(f"Saved cost plot: {out_var_path}")
+        plt.close(fig)
 
 
 if __name__ == "__main__":

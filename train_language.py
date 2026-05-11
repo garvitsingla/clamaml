@@ -86,10 +86,12 @@ p.add_argument("--lambda-lava", type=float, default=0.8)
 p.add_argument("--lambda-grass", type=float, default=0.3)
 p.add_argument("--lambda-water", type=float, default=0.5)
 p.add_argument("--hazard-density", type=float, default=0.2)
-p.add_argument("--max-hazards", type=int, default=2,
+p.add_argument("--max-hazards", type=int, default=4,
                help="max number of hazard tiles placed per constraint type")
-p.add_argument("--delta-constraint", type=float, default=0.2,
+p.add_argument("--delta-constraint", type=float, default=0.1,
                help="scale for constraint adapter deltas (like delta-theta but for constraints)")
+p.add_argument("--num-constraints", type=int, default=1,
+               help="number of constraints to train with (1 or 2)")
 
 args = p.parse_args()
 
@@ -138,18 +140,43 @@ def build_env(env, room_size, num_dists, max_steps, missions, hazard_density=0.2
     return BabyAIMissionTaskWrapper(base, missions=missions, goals=goals, constraints=constraints)
 
 
-def select_missions(env_name):
-    mission_map = {
-        "ConstrainedGoToLocal": DOUBLE_CONSTRAINED_LOCAL_MISSIONS,
-        "ConstrainedPickupDist": DOUBLE_CONSTRAINED_PICKUP_MISSIONS,
-        "ConstrainedGoToObjDoor": CONSTRAINED_GOTOOBJDOOR_MISSIONS,
-        "ConstrainedGoToOpen": DOUBLE_CONSTRAINED_GOTOOPEN_MISSIONS,
-        "ConstrainedOpenDoor": DOUBLE_CONSTRAINED_OPENDOOR_MISSIONS,
-        "ConstrainedOpenDoorLoc": DOUBLE_CONSTRAINED_OPENDOORLOC_MISSIONS,
-        "ConstrainedOpenDoorsOrder": DOUBLE_CONSTRAINED_OPENDOORSORDER_MISSIONS,
-        "ConstrainedActionObjDoor": DOUBLE_CONSTRAINED_ACTIONOBJDOOR_MISSIONS,
-        "ConstrainedFindObjS5": DOUBLE_CONSTRAINED_FINDOBJS5_MISSIONS
-    }
+   # Select for missions based on environment
+def select_missions(env_name, num_constraints=1):
+    from environment import (
+        CONSTRAINED_LOCAL_MISSIONS, DOUBLE_CONSTRAINED_LOCAL_MISSIONS,
+        CONSTRAINED_PICKUP_MISSIONS, DOUBLE_CONSTRAINED_PICKUP_MISSIONS,
+        CONSTRAINED_GOTOOBJDOOR_MISSIONS, DOUBLE_CONSTRAINED_GOTOOBJDOOR_MISSIONS,
+        CONSTRAINED_GOTOOPEN_MISSIONS, DOUBLE_CONSTRAINED_GOTOOPEN_MISSIONS,
+        CONSTRAINED_OPENDOOR_MISSIONS, DOUBLE_CONSTRAINED_OPENDOOR_MISSIONS,
+        CONSTRAINED_OPENDOORLOC_MISSIONS, DOUBLE_CONSTRAINED_OPENDOORLOC_MISSIONS,
+        CONSTRAINED_OPENDOORSORDER_MISSIONS, DOUBLE_CONSTRAINED_OPENDOORSORDER_MISSIONS,
+        CONSTRAINED_ACTIONOBJDOOR_MISSIONS, DOUBLE_CONSTRAINED_ACTIONOBJDOOR_MISSIONS,
+        CONSTRAINED_FINDOBJS5_MISSIONS, DOUBLE_CONSTRAINED_FINDOBJS5_MISSIONS
+    )
+    if num_constraints == 1:
+        mission_map = {
+            "ConstrainedGoToLocal": CONSTRAINED_LOCAL_MISSIONS,
+            "ConstrainedPickupDist": CONSTRAINED_PICKUP_MISSIONS,
+            "ConstrainedGoToObjDoor": CONSTRAINED_GOTOOBJDOOR_MISSIONS,
+            "ConstrainedGoToOpen": CONSTRAINED_GOTOOPEN_MISSIONS,
+            "ConstrainedOpenDoor": CONSTRAINED_OPENDOOR_MISSIONS,
+            "ConstrainedOpenDoorLoc": CONSTRAINED_OPENDOORLOC_MISSIONS,
+            "ConstrainedOpenDoorsOrder": CONSTRAINED_OPENDOORSORDER_MISSIONS,
+            "ConstrainedActionObjDoor": CONSTRAINED_ACTIONOBJDOOR_MISSIONS,
+            "ConstrainedFindObjS5": CONSTRAINED_FINDOBJS5_MISSIONS
+        }
+    else:
+        mission_map = {
+            "ConstrainedGoToLocal": DOUBLE_CONSTRAINED_LOCAL_MISSIONS,
+            "ConstrainedPickupDist": DOUBLE_CONSTRAINED_PICKUP_MISSIONS,
+            "ConstrainedGoToObjDoor": DOUBLE_CONSTRAINED_GOTOOBJDOOR_MISSIONS,
+            "ConstrainedGoToOpen": DOUBLE_CONSTRAINED_GOTOOPEN_MISSIONS,
+            "ConstrainedOpenDoor": DOUBLE_CONSTRAINED_OPENDOOR_MISSIONS,
+            "ConstrainedOpenDoorLoc": DOUBLE_CONSTRAINED_OPENDOORLOC_MISSIONS,
+            "ConstrainedOpenDoorsOrder": DOUBLE_CONSTRAINED_OPENDOORSORDER_MISSIONS,
+            "ConstrainedActionObjDoor": DOUBLE_CONSTRAINED_ACTIONOBJDOOR_MISSIONS,
+            "ConstrainedFindObjS5": DOUBLE_CONSTRAINED_FINDOBJS5_MISSIONS
+        }
     return mission_map[env_name]
 
 
@@ -183,7 +210,7 @@ def main():
     max_hazards = args.max_hazards
 
 
-    missions = select_missions(env_name)
+    missions = select_missions(env_name, num_constraints=args.num_constraints)
 
     # For constrained envs, pass separate goals/constraints
     _CONSTRAINED_GOALS = {
@@ -287,6 +314,8 @@ def main():
     # Training loop
     avg_steps_per_batch = []
     std_steps_per_batch = []
+    avg_costs_per_batch = []
+    std_costs_per_batch = []
     # For constrained env, count tasks from goals × constraints; otherwise from missions
     if goals_list is not None:
         total_tasks = len(goals_list) * len(constraints_list)
@@ -315,17 +344,23 @@ def main():
         # Log average cost across all episodes in this meta-batch
         total_cost = 0
         count = 0
+        all_costs = []
         for ep in valid_episodes:
             if hasattr(ep, '_costs') and ep._costs is not None:
                 total_cost += ep._costs.sum().item()
                 count += ep._costs.shape[1]  # batch_size
+                all_costs.extend(ep._costs.sum(dim=0).detach().cpu().numpy())
             elif hasattr(ep, 'costs'):
                 try:
                     total_cost += ep.costs.sum().item()
                     count += ep.costs.shape[1]
+                    all_costs.extend(ep.costs.sum(dim=0).detach().cpu().numpy())
                 except Exception:
                     pass
         avg_cost = total_cost / max(count, 1)
+        std_cost = float(np.std(all_costs)) if len(all_costs) > 0 else 0.0
+        avg_costs_per_batch.append(avg_cost)
+        std_costs_per_batch.append(std_cost)
         print(f"Average cost in Meta-batch {batch+1}: {avg_cost:.4f}")
 
         # print("--- Per-Task Episode Breakdown ---")
@@ -360,23 +395,32 @@ def main():
         "mission_adapter": mission_adapter.state_dict(),
         "constraint_adapter": constraint_adapter.state_dict(),
     }
-    torch.save(save_dict, f"lang_model/lang_{env_name}_{delta_theta}.pth")
+    torch.save(save_dict, f"lang_model/lang_{env_name}_{delta_theta}_{args.num_constraints}c.pth")
 
 
     # plot
-    env_dir = os.path.join("metrics", env_name)
+    env_dir = os.path.join("metrics", f"{env_name}_{args.num_constraints}c")
     os.makedirs(env_dir, exist_ok=True) 
 
-    np.save(os.path.join(env_dir, f"la_maml_avg_steps_{delta_theta}.npy"), np.array(avg_steps_per_batch))
-    np.save(os.path.join(env_dir, f"la_maml_std_steps_{delta_theta}.npy"), np.array(std_steps_per_batch))
-    with open(os.path.join(env_dir, f"la_maml_meta_{delta_theta}.json"), "w") as f:
-        json.dump({"label" : "LA-MAML", "env" : env_name}, f)
+    np.save(os.path.join(env_dir, f"c_lamaml_avg_steps_{delta_theta}.npy"), np.array(avg_steps_per_batch))
+    np.save(os.path.join(env_dir, f"c_lamaml_std_steps_{delta_theta}.npy"), np.array(std_steps_per_batch))
+    np.save(os.path.join(env_dir, f"c_lamaml_avg_costs_{delta_theta}.npy"), np.array(avg_costs_per_batch))
+    np.save(os.path.join(env_dir, f"c_lamaml_std_costs_{delta_theta}.npy"), np.array(std_costs_per_batch))
+    with open(os.path.join(env_dir, f"c_lamaml_meta_{delta_theta}.json"), "w") as f:
+        json.dump({"label" : "C-LAMAML", "env" : env_name}, f)
     
     plt.plot(avg_steps_per_batch)
     plt.xlabel("Meta-batch")
     plt.ylabel("Average steps per episode")
-    plt.title(f"Average steps per episode per meta-batch (delta_theta={delta_theta})")
-    plt.savefig(os.path.join(env_dir, f"la_maml_plot_{delta_theta}.png"))
+    plt.title(f"Average steps per episode per meta-batch (delta_theta={delta_theta}, {args.num_constraints}c)")
+    plt.savefig(os.path.join(env_dir, f"la_maml_plot_{delta_theta}_{args.num_constraints}c.png"))
+    plt.close()
+
+    plt.plot(avg_costs_per_batch)
+    plt.xlabel("Meta-batch")
+    plt.ylabel("Average cost per episode")
+    plt.title(f"Average cost per episode per meta-batch (delta_theta={delta_theta}, {args.num_constraints}c)")
+    plt.savefig(os.path.join(env_dir, f"la_maml_cost_plot_{delta_theta}_{args.num_constraints}c.png"))
     plt.close()
 
 if __name__ == "__main__":

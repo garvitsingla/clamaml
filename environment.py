@@ -140,6 +140,11 @@ GOTOOBJDOOR_MISSIONS = LOCAL_MISSIONS + DOOR_MISSIONS
 
 CONSTRAINED_GOTOOBJDOOR_MISSIONS = [
     f"{goal} and {constraint}"
+    for goal in GOTOOBJDOOR_MISSIONS for constraint in CONSTRAINT_TEXTS
+]
+
+DOUBLE_CONSTRAINED_GOTOOBJDOOR_MISSIONS = [
+    f"{goal} and {constraint}"
     for goal in GOTOOBJDOOR_MISSIONS for constraint in DOUBLE_CONSTRAINT_TEXTS
 ]
 
@@ -461,7 +466,7 @@ class GoToObjDoorMissionEnv(GoToObjDoor):
         super().__init__( **kwargs)
         self._forced_mission = None
         self.num_distractors = num_distractors
-        self.render_mode = kwargs.get('render_mode', 'human')
+        # self.render_mode = kwargs.get('render_mode', 'human')
 
     def set_forced_mission(self, mission):
         self._forced_mission = mission
@@ -512,7 +517,7 @@ class GoToObjDoorMissionEnv(GoToObjDoor):
 # -----------------------------------------------------------------------
 
 class GoToOpenMissionEnv(GoTo):
-    def __init__(self, room_size=6, num_rows=2, num_cols=2, num_dists=10, **kwargs):
+    def __init__(self, room_size=6, num_rows=2, num_cols=2, num_dists=6, **kwargs):
         super().__init__(room_size=room_size,
                          num_rows=num_rows,
                          num_cols=num_cols,
@@ -520,7 +525,7 @@ class GoToOpenMissionEnv(GoTo):
                          doors_open=True,
                          **kwargs)
         self._forced_mission = None
-        # self.render_mode = kwargs.get('render_mode', 'human')
+        # self.render_mode = kwargs.get('ren/der_mode', 'human')
 
     def set_forced_mission(self, mission):
         self._forced_mission = mission
@@ -893,12 +898,12 @@ class ActionObjDoorMissionEnv(RoomGridLevel):
 # ----------------------------------------------------------------------
 
 class FindObjS5MissionEnv(RoomGridLevel):
-    def __init__(self, room_size=5, num_rows=3, num_cols=3, max_steps=None, **kwargs):
+    def __init__(self, room_size=5, num_rows=2, num_cols=2, max_steps=None, **kwargs):
         if max_steps is None:
             max_steps = 20 * room_size**2
         self._forced_mission = None
         super().__init__(room_size=room_size, num_rows=num_rows, num_cols=num_cols, max_steps=max_steps, **kwargs)
-        self.render_mode = kwargs.get('render_mode', 'human')
+        # self.render_mode = kwargs.get('render_mode', 'human')
 
     def set_forced_mission(self, mission: str):
         self._forced_mission = mission
@@ -1094,7 +1099,7 @@ class ConstrainedGoToObjDoorEnv(GoToObjDoorMissionEnv):
         self.max_hazards = max_hazards
         self.constraint_tiles = []
         super().__init__(**kwargs)
-        self.render_mode = kwargs.get('render_mode', 'human')
+        # self.render_mode = kwargs.get('render_mode', 'human')
 
     def set_forced_mission(self, mission):
         goal_part = mission.split(" and avoid ")[0].strip()
