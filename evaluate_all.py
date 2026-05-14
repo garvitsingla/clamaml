@@ -2,7 +2,7 @@
 Compares on the same environment and task set:
   1. C-LA-MAML        — dual adapters (lang_model/)
   2. Unified LA-MAML  — single adapter, full combined string (unified_model/)
-  3. NN C-LA-MAML     — AbsoluteNN (nn_model/)
+  3. NN C-LA-MAML     — ConstrainedNN (nn_model/)
   4. Random Policy    — untrained baseline
 
 Output: evaluation_results_all.xlsx  (one sheet per env, plus a per-mission sheet)
@@ -29,7 +29,7 @@ from environment import (ConstrainedGoToLocalEnv, ConstrainedPickupDistEnv,
                          ConstrainedFindObjS5Env)
 from sampler_lang import (BabyAIMissionTaskWrapper, SentenceMissionEncoder,
                           MissionParamAdapter, ConstraintParamAdapter,
-                          AbsoluteNN)
+                          ConstrainedNN)
 import sampler_lang
 from maml_rl.policies.categorical_mlp import CategoricalMLPPolicy
 
@@ -240,7 +240,7 @@ if not args.skip_nn:
         policy_h = _make_policy(); policy_h.load_state_dict(ckpt_h["policy"]); policy_h.eval()
         nn_net = None
         if ckpt_h.get("nn") is not None:
-            nn_net = AbsoluteNN(enc_dim, policy_param_shapes).to(device)
+            nn_net = ConstrainedNN(enc_dim, policy_param_shapes).to(device)
             nn_net.load_state_dict(ckpt_h["nn"]); nn_net.eval()
         nn_ready = True
         print(f"[✓] NN C-LAMAML loaded from {_ckpt_path}")

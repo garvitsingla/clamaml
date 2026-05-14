@@ -1,6 +1,0 @@
-lang_model/** filter=lfs diff=lfs merge=lfs -text
-nn_model/** filter=lfs diff=lfs merge=lfs -text
-unified_model/** filter=lfs diff=lfs merge=lfs -text
-clamaml/** filter=lfs diff=lfs merge=lfs -text
-metrics/** filter=lfs diff=lfs merge=lfs -text
-*.xlsx filter=lfs diff=lfs merge=lfs -text

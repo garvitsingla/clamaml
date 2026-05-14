@@ -23,17 +23,15 @@ class MAMLTRPO(GradientBasedMetaLearner):
         self.first_order = first_order
         self.mission_encoder = mission_encoder
         self.nn = nn
-        # Fixed per-hazard λ: {tile_index: weight}
         self.lambda_weights = lambda_weights or {2: 0.8, 3: 0.3, 4: 0.5}
-     
-    
+
 
     def adapt_one(self, mission):
         
         if mission is None:
             raise RuntimeError("Mission is None! Make sure each BatchEpisodes has a valid mission.")
 
-        # Handle (goal, constraint) tuple or plain string
+        # (goal, constraint) tuple or plain string
         if isinstance(mission, tuple):
             goal_text, constraint_text = mission
         else:
@@ -53,10 +51,9 @@ class MAMLTRPO(GradientBasedMetaLearner):
         policy_params = list(self.policy.parameters())
         param_names = list(dict(self.policy.named_parameters()).keys())
 
-        # Construct Absolute NN Parameter Array
+        # Construct Constrained NN Parameter Array
         if self.nn is not None:
             theta_flat = parameters_to_vector(policy_params)
-            # Concat dynamically across the dimension
             combined_input = torch.cat([theta_flat.unsqueeze(0), goal_emb, constraint_emb], dim=-1)
             theta_prime_tensors = self.nn(combined_input)
             

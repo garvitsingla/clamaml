@@ -5,7 +5,10 @@ from concurrent.futures import ProcessPoolExecutor
 import gymnasium as gym
 from maml_rl.episode import BatchEpisodes
 from sentence_transformers import SentenceTransformer
-# import logging
+import warnings
+import logging
+warnings.filterwarnings("ignore")
+logging.getLogger("gym").setLevel(logging.ERROR)
 
 import builtins, io
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
@@ -34,11 +37,6 @@ def rollout_one_task(args):
     (make_env_fn, mission, policy_cls, policy_kwargs, 
      policy_state_dict,adapted_params_cpu, batch_size, gamma, lambda_weights) = args
     
-    import warnings
-    import logging
-    warnings.filterwarnings("ignore") # Silence everything in workers
-    logging.getLogger("gym").setLevel(logging.ERROR) # Silence gym specific prints
-
     env = make_env_fn()
     env.reset_task(mission)
 
@@ -80,8 +78,8 @@ def rollout_one_task(args):
         total_steps += steps
         episode_stats.append({'steps': steps, 'violations': ep_violations, 'tiles_hit': tiles_hit})
         
-        mission_str = f"{mission[0]} and {mission[1]}" if isinstance(mission, tuple) else str(mission)
-        tiles_str = ", ".join([f"{k}:{v}" for k, v in tiles_hit.items()]) if tiles_hit else "None"
+        # mission_str = f"{mission[0]} and {mission[1]}" if isinstance(mission, tuple) else str(mission)
+        # tiles_str = ", ".join([f"{k}:{v}" for k, v in tiles_hit.items()]) if tiles_hit else "None"
         # print(f"Task: '{mission_str}' |  Ep: {episode+1}/{batch_size}  | steps: {steps} | violations: {ep_violations} | hazards_hit: {tiles_str}", flush=True)
 
     return (mission, total_steps, obs_list, action_list, reward_list, cost_list, episode_list, episode_stats)
@@ -90,20 +88,17 @@ def rollout_one_task(args):
 class BabyAIMissionTaskWrapper(gym.Wrapper):
     def __init__(self, env, missions=None, goals=None, constraints=None):
         super().__init__(env)
-        # Support both old-style (single mission list) and new-style (goal + constraint lists)
-        self.missions = missions  # for non-constrained envs
-        self.goals = goals        # for constrained envs
-        self.constraints = constraints  # for constrained envs
+        self.missions = missions  
+        self.goals = goals        
+        self.constraints = constraints  
         self.current_mission = None
 
     def sample_tasks(self, n_tasks):
-        if self.goals is not None and self.constraints is not None:
-            # Constrained env: sample (goal, constraint) tuples
-            goals = list(np.random.choice(self.goals, n_tasks, replace=True))
-            constraints = list(np.random.choice(self.constraints, n_tasks, replace=True))
-            return list(zip(goals, constraints))
-        else:
-            return list(np.random.choice(self.missions, n_tasks, replace=False))
+        assert self.goals is not None and self.constraints is not None, \
+            "BabyAIMissionTaskWrapper requires goals and constraints to be set"
+        goals = [np.random.choice(self.goals) for _ in range(n_tasks)]
+        constraints = [np.random.choice(self.constraints) for _ in range(n_tasks)]
+        return list(zip(goals, constraints))
 
     def reset_task(self, mission):
         if isinstance(mission, tuple):
@@ -131,40 +126,18 @@ class BabyAIMissionTaskWrapper(gym.Wrapper):
         else:
             return obs
         
-
-# Mission Encoder
-class MissionEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim1=32, hidden_dim2=64, output_dim=32):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim1),
-            nn.ReLU(),
-            nn.Linear(hidden_dim1, hidden_dim2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim2, output_dim)
-        )
-    def forward(self, x):
-        return self.net(x)
-
-
+        
 class SentenceMissionEncoder(nn.Module):
-    """
-    Mission text -> sentence embedding (SBERT / SentenceTransformer)
-
-    This is "frozen" by default: the pretrained backbone does NOT get updated.
-    Your MissionParamAdapter and policy still learn normally.
-    """
     def __init__(self, model_name="all-MiniLM-L6-v2", frozen=True, normalize=True, cache=True, device=None):
         super().__init__()
         self.normalize = normalize
         self.cache = cache
-        self._cache = {}  # mission_str -> embedding tensor on CPU (to save GPU mem)
+        self._cache = {}
 
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
 
-        # SentenceTransformer is itself a torch module
         self.model = SentenceTransformer(model_name, device=str(self.device))
         self.output_dim = self.model.get_sentence_embedding_dimension()
 
@@ -174,11 +147,9 @@ class SentenceMissionEncoder(nn.Module):
                 p.requires_grad = False
 
     def forward(self, missions):
-        # missions: str or list[str]
         if isinstance(missions, str):
             missions = [missions]
 
-        # simple caching helps because missions repeat a lot
         out = []
         to_encode = []
         idxs = []
@@ -221,22 +192,14 @@ class MissionParamAdapter(nn.Module):
             nn.Tanh()  
         )
     def forward(self, mission_emb):
-        
         out = self.net(mission_emb)  
-        split_points = []
-        total = 0
-        for shape in self.policy_param_shapes:
-            num = torch.Size(shape).numel()
-            split_points.append(total + num)
-            total += num
         chunks = torch.split(out, [torch.Size(shape).numel() for shape in self.policy_param_shapes], dim=1)
         reshaped = [chunk.view(-1, *shape) for chunk, shape in zip(chunks, self.policy_param_shapes)]
         return reshaped 
 
 
-# Constraint Param Adapter (separate learnable weights for constraint path)
+# Constraint Param Adapter
 class ConstraintParamAdapter(nn.Module):
-    """constraint embedding → Δθ_constraint. Same architecture as MissionParamAdapter."""
     def __init__(self, constraint_adapter_input_dim, policy_param_shapes):
         super().__init__()
         self.policy_param_shapes = policy_param_shapes
@@ -255,7 +218,7 @@ class ConstraintParamAdapter(nn.Module):
         return reshaped 
         
 
-class AbsoluteNN(nn.Module):
+class ConstrainedNN(nn.Module):
     """
     Absolute NN: [flattened_theta, goal_emb, constraint_emb] -> absolute theta_prime
     """

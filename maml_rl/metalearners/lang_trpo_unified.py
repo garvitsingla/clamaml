@@ -25,28 +25,26 @@ class MAMLTRPO(GradientBasedMetaLearner):
         self.first_order = first_order
         self.mission_encoder = mission_encoder
         self.mission_adapter = mission_adapter
-        # Fixed per-hazard λ for Lagrangian surrogate loss
         self.lambda_weights = lambda_weights or {2: 0.8, 3: 0.3, 4: 0.5}
 
+
     def adapt_one(self, mission):
-        """Compute θ' = θ + Δθ_unified using a single combined mission string."""
         if mission is None:
             raise RuntimeError("Mission is None!")
 
-        # If mission is a (goal, constraint) tuple, join them into one string
+        # (goal, constraint) tuple or plain string
         if isinstance(mission, tuple):
             goal_text, constraint_text = mission
             combined_text = f"{goal_text} and {constraint_text}"
         else:
             combined_text = mission
 
-        # Single encoder → single adapter → Δθ_unified
         combined_emb = self.mission_encoder(combined_text)
         combined_emb = combined_emb.to(next(self.mission_adapter.parameters()).device)
         delta_unified = self.mission_adapter(combined_emb)
         delta_unified = [du * self.delta_theta for du in delta_unified]
 
-        # θ' = θ + Δθ_unified
+        # θ' = θ + Δθ
         policy_params = list(self.policy.parameters())
         param_names = list(dict(self.policy.named_parameters()).keys())
 
@@ -74,13 +72,12 @@ class MAMLTRPO(GradientBasedMetaLearner):
         if not isinstance(valid_futures, list):
             valid_futures = [valid_futures]
 
-        task_params_list = [
-            self.adapt_one(getattr(vb, "mission", None))
-            for vb in valid_futures
-        ]
+        task_params_list = [self.adapt_one(getattr(valid_batch, "mission", None)) for valid_batch in valid_futures]
 
         with torch.set_grad_enabled(old_pi is None):
-            losses, kls, old_pis = [], [], []
+            losses = []
+            kls = []
+            old_pis = []
             for task_params, valid_episodes in zip(task_params_list, valid_futures):
                 pi = self.policy(valid_episodes.observations, params=task_params)
 
@@ -141,12 +138,8 @@ class MAMLTRPO(GradientBasedMetaLearner):
 
         old_loss = sum(old_losses) / num_tasks
 
-        # Only ONE adapter in meta_params (no constraint_adapter)
-        meta_params = (
-            list(self.policy.parameters()) +
-            list(self.mission_adapter.parameters()) +
-            list(self.mission_encoder.parameters())
-        )
+        meta_params = list(self.policy.parameters()) + list(self.mission_encoder.parameters()) + list(self.mission_adapter.parameters()) 
+
         meta_params = [p for p in meta_params if p.requires_grad]
 
         grads = torch.autograd.grad(old_loss, meta_params, retain_graph=True)

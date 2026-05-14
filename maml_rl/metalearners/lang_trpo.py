@@ -29,9 +29,7 @@ class MAMLTRPO(GradientBasedMetaLearner):
         self.mission_encoder = mission_encoder
         self.mission_adapter = mission_adapter
         self.constraint_adapter = constraint_adapter
-        # Fixed per-hazard λ: {tile_index: weight}
         self.lambda_weights = lambda_weights or {2: 0.8, 3: 0.3, 4: 0.5}
-     
     
 
     def adapt_one(self, mission):
@@ -39,20 +37,20 @@ class MAMLTRPO(GradientBasedMetaLearner):
         if mission is None:
             raise RuntimeError("Mission is None! Make sure each BatchEpisodes has a valid mission.")
 
-        # Handle (goal, constraint) tuple or plain string
+        # (goal, constraint) tuple or plain string
         if isinstance(mission, tuple):
             goal_text, constraint_text = mission
         else:
             goal_text = mission
             constraint_text = None
 
-        # Goal path: encode goal text → MissionParamAdapter → Δθ_goal
+        # Goal path: encode goal text
         goal_emb = self.mission_encoder(goal_text)
         goal_emb = goal_emb.to(next(self.mission_adapter.parameters()).device)
         delta_goal = self.mission_adapter(goal_emb)
         delta_goal = [dg * self.delta_theta for dg in delta_goal]
 
-        # Constraint path: encode constraint text → ConstraintParamAdapter → Δθ_constraint
+        # Constraint path: encode constraint text
         if constraint_text is not None and self.constraint_adapter is not None:
             constraint_emb = self.mission_encoder(constraint_text)
             constraint_emb = constraint_emb.to(next(self.constraint_adapter.parameters()).device)
@@ -168,7 +166,7 @@ class MAMLTRPO(GradientBasedMetaLearner):
 
         old_loss = sum(old_losses) / num_tasks
 
-        meta_params = list(self.policy.parameters()) + list(self.mission_adapter.parameters()) + list(self.mission_encoder.parameters())
+        meta_params = list(self.policy.parameters()) + list(self.mission_encoder.parameters()) + list(self.mission_adapter.parameters()) 
         if self.constraint_adapter is not None:
             meta_params += list(self.constraint_adapter.parameters())
         meta_params = [p for p in meta_params if p.requires_grad]
