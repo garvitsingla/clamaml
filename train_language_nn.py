@@ -222,7 +222,7 @@ def main():
 
     env = make_env()
     print("[NN based C-MAML]\n" f"Using environment: {env_name}\n"
-        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}")
+        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}\n")
         
     # Policy setup 
     hidden_sizes = (64, 64)

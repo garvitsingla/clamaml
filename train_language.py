@@ -43,7 +43,7 @@ from environment import (LOCAL_MISSIONS,
                          CONSTRAINED_FINDOBJS5_MISSIONS,
                          DOUBLE_CONSTRAINED_LOCAL_MISSIONS,
                          DOUBLE_CONSTRAINED_PICKUP_MISSIONS,
-                         DOUBLE_CONSTRAINED_GOTOOBJDOOR_MISSIONS
+                         DOUBLE_CONSTRAINED_GOTOOBJDOOR_MISSIONS,
                          DOUBLE_CONSTRAINED_OPENDOOR_MISSIONS,
                          DOUBLE_CONSTRAINED_OPENDOORLOC_MISSIONS,
                          DOUBLE_CONSTRAINED_OPENDOORSORDER_MISSIONS,
@@ -225,7 +225,7 @@ def main():
 
     env = make_env()
     print("[Constrained LA-MAML]\n" f"Using environment: {env_name}\n"
-        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}"
+        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}\n"
         f"delta_theta: {delta_theta}")
 
     # Policy setup 

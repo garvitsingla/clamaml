@@ -220,7 +220,7 @@ def main():
 
     env = make_env()
     print("[Unified LA-MAML]\n" f"Using environment: {env_name}\n"
-        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}"
+        f"room_size: {room_size}  num_dists: {num_dists}  max_steps: {max_steps}\n"
         f"delta_theta: {delta_theta}")
 
     # Policy setup 
